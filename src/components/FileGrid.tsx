@@ -10,7 +10,8 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  Loader2
+  Loader2,
+  Settings2
 } from 'lucide-react';
 import { cn, formatBytes } from '../lib/utils';
 
@@ -32,6 +33,7 @@ interface FileGridProps {
   onAddMore: (files: File[]) => void;
   accept: string;
   maxFiles: number;
+  onOpenConfig?: () => void;
 }
 
 const GridItemComponent = React.memo(({ 
@@ -178,48 +180,71 @@ export function FileGrid({
   onPreview,
   onAddMore,
   accept,
-  maxFiles
+  maxFiles,
+  onOpenConfig
 }: FileGridProps) {
   const [showUploads, setShowUploads] = useState(false);
   const isLargeBatch = items.length > 40;
+  const processingItems = items.filter(item => item.status === 'processing');
+  const processingTotalSize = processingItems.reduce((acc, item) => acc + item.size, 0);
+  const estimatedSeconds = processingTotalSize ? Math.max(3, Math.round(processingTotalSize / (14 * 1024 * 1024))) : 0;
+  const hasReachedLimit = items.length >= maxFiles;
+  const showUploadsPanel = hasReachedLimit || showUploads;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
-        <div className="flex items-center gap-4">
-          <button 
-            onClick={() => setShowUploads(!showUploads)}
-            className="flex items-center gap-3 px-5 py-2.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-blue-500 text-neutral-600 dark:text-neutral-400 hover:text-blue-600 rounded-xl transition-all text-xs font-black uppercase tracking-widest shadow-sm active:scale-95"
-          >
-            {showUploads ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-            {showUploads ? 'Hide Uploads' : 'Show Uploads'}
-            <span className="ml-2 px-2 py-0.5 bg-neutral-100 dark:bg-neutral-800 text-[10px] rounded-md">{items.length}</span>
-          </button>
+      {!hasReachedLimit && (
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setShowUploads(!showUploads)}
+              className="flex items-center gap-3 px-5 py-2.5 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 hover:border-blue-500 text-neutral-600 dark:text-neutral-400 hover:text-blue-600 rounded-xl transition-all text-xs font-black uppercase tracking-widest shadow-sm active:scale-95"
+            >
+              {showUploads ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+              {showUploads ? 'Hide Uploads' : 'Show Uploads'}
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-[0.3em] text-neutral-500">{items.length}/{maxFiles}</span>
+            {onOpenConfig && (
+              <button
+                type="button"
+                onClick={onOpenConfig}
+                className="p-3 bg-neutral-100 dark:bg-neutral-900 rounded-2xl text-neutral-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all"
+                aria-label="Open PDF configuration"
+              >
+                <Settings2 className="w-5 h-5" />
+              </button>
+            )}
+          </div>
         </div>
-        
-        <div className="flex items-center gap-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-neutral-400 hidden sm:block">Add more files</p>
-          <label className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl transition-all shadow-lg shadow-blue-500/20 cursor-pointer active:scale-95 text-sm uppercase italic tracking-tighter shrink-0">
-            <Plus className="w-5 h-5" />
-            ADD MORE
-            <input 
-              type="file" 
-              multiple 
-              className="hidden" 
-              accept={accept} 
-              onChange={(e) => {
-                if (e.target.files) {
-                    onAddMore(Array.from(e.target.files));
-                    setShowUploads(true);
-                }
-              }} 
-            />
-          </label>
+      )}
+
+      {processingItems.length > 0 && (
+        <div className="px-4 py-4 bg-blue-50/80 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900 rounded-[28px] shadow-sm shadow-blue-500/10 space-y-2">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+              <div>
+                <p className="text-sm font-black uppercase tracking-[0.35em] text-blue-600">Loading files</p>
+                <p className="text-[11px] text-neutral-600 dark:text-neutral-300">
+                  {processingItems.length} file{processingItems.length > 1 ? 's' : ''} • {formatBytes(processingTotalSize)}
+                </p>
+              </div>
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-blue-700">
+              Est. {estimatedSeconds} sec
+            </p>
+          </div>
+          <div className="h-2 w-full bg-blue-200 rounded-full overflow-hidden">
+            <div className="h-full w-full bg-gradient-to-r from-blue-500 via-blue-400 to-blue-500 animate-[pulse_2.5s_ease-in-out_infinite]" />
+          </div>
         </div>
-      </div>
+      )}
 
       <AnimatePresence initial={false}>
-        {showUploads && (
+        {showUploadsPanel && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}

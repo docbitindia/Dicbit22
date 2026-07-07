@@ -19,11 +19,10 @@ import {
   Settings2,
   Layout,
   Palette,
-  Shield,
   ShieldCheck,
   Zap,
   Globe,
-  Image as ImageIcon
+  X
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { readFileAsArrayBuffer, cn, formatBytes } from '../../lib/utils';
@@ -49,7 +48,7 @@ type PageSize = 'A4' | 'A3' | 'Letter' | 'Custom';
 type Orientation = 'portrait' | 'landscape';
 
 export default function ImgToPdfTool() {
-  const MAX_FILES = 300;
+  const MAX_FILES = 50;
   const tool = TOOLS.find(t => t.id === 'img-to-pdf')!;
   const [images, setImages] = useState<GridItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -69,21 +68,32 @@ export default function ImgToPdfTool() {
   
   // Advanced Options
   const [quality, setQuality] = useState<'high' | 'medium' | 'small'>('medium');
+  const [filename, setFilename] = useState('images_to_pdf');
+  const [isConfigModalOpen, setIsConfigModalOpen] = useState(false);
 
   const [result, setResult] = useState<{ url: string; size: number } | null>(null);
   const [isDownloaded, setIsDownloaded] = useState(false);
   const [viewerItem, setViewerItem] = useState<GridItem | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const downloadBaseFilename = filename.trim().replace(/\.pdf$/i, '') || 'images_to_pdf';
+  const downloadFilename = `${downloadBaseFilename}.pdf`;
 
   const blocker = useFileExitConfirm({ isDirty: images.length > 0 && !result });
 
   const handleFiles = async (files: File[]) => {
     if (images.length >= MAX_FILES) {
-      alert(`Maximum of ${MAX_FILES} images allowed.`);
+      setErrorMessage(`Maximum of ${MAX_FILES} images allowed.`);
       return;
     }
 
+    setErrorMessage(null);
     const remainingSlots = MAX_FILES - images.length;
     const filesToProcess = files.slice(0, remainingSlots);
+
+    if (files.length > remainingSlots) {
+      setErrorMessage(`Only ${remainingSlots} additional image${remainingSlots === 1 ? '' : 's'} can be added.`);
+    }
 
     setIsAddingFiles(true);
     
@@ -115,6 +125,7 @@ export default function ImgToPdfTool() {
             await new Promise(r => setTimeout(r, 20)); // Keep UI thread smooth
         } catch (e) {
             console.error('Thumbnail error:', e);
+            setErrorMessage('One or more images could not be rendered. Please try different files.');
         }
     }
 
@@ -259,12 +270,12 @@ export default function ImgToPdfTool() {
       setProgress(100);
 
       const pdfBytes = await pdfDoc.save();
-      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      const blob = new Blob([pdfBytes as unknown as BlobPart], { type: 'application/pdf' });
       setResult({ url: URL.createObjectURL(blob), size: blob.size });
       setIsDownloaded(false);
     } catch (e) {
-      console.error(e);
-      alert('Error during conversion. Large files can be memory intensive.');
+      console.error('Image to PDF conversion error:', e);
+      setErrorMessage('Error during conversion. Large files can be memory intensive. Please try fewer images or lower quality.');
     } finally {
       setIsProcessing(false);
       setProgress(0);
@@ -276,7 +287,7 @@ export default function ImgToPdfTool() {
     if (!result) return;
     const link = document.createElement('a');
     link.href = result.url;
-    link.download = `docbit_images_${new Date().getTime()}.pdf`;
+    link.download = downloadFilename;
     link.click();
     setIsDownloaded(true);
   };
@@ -308,7 +319,7 @@ export default function ImgToPdfTool() {
       <AnimatePresence>
         {result && (
           <DownloadResult 
-            filename="images_to_pdf.pdf" 
+            filename={downloadFilename} 
             size={result.size} 
             onDownload={handleDownload} 
             isDownloaded={isDownloaded}
@@ -318,175 +329,90 @@ export default function ImgToPdfTool() {
         )}
       </AnimatePresence>
 
-       {images.length === 0 ? (
-        <Dropzone 
-          onFilesSelected={handleFiles} 
-          maxFiles={MAX_FILES} 
-          isProcessing={isAddingFiles}
-          accept={{ 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/webp': ['.webp'] }}
-          label="Select Images (JPG, PNG, WebP)" 
+      {errorMessage && (
+        <div className="px-4 py-3 rounded-3xl bg-red-50 dark:bg-red-950/60 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm font-bold uppercase tracking-[0.24em]">
+          {errorMessage}
+        </div>
+      )}
+
+      <Dropzone 
+        onFilesSelected={handleFiles} 
+        maxFiles={MAX_FILES} 
+        existingFilesCount={images.length}
+        maxFilesMessage="Maximum 50 images allowed per conversion."
+        invalidTypeMessage="Only PNG, JPG, and WebP images are supported."
+        maxFilesStrict={true}
+        isProcessing={isAddingFiles}
+        processingFilesCount={images.length}
+        processingTotalSize={images.reduce((acc, item) => acc + item.size, 0)}
+        onError={setErrorMessage}
+        accept={{ 'image/png': ['.png'], 'image/jpeg': ['.jpg', '.jpeg'], 'image/webp': ['.webp'] }}
+        label="Select Images (JPG, PNG, WebP)" 
+      />
+
+      {images.length > 0 && (
+        <FileGrid 
+          items={images}
+          onRemove={removeImg}
+          onMove={handleMove}
+          onRotate={handleRotate}
+          onPreview={setViewerItem}
+          onAddMore={handleFiles}
+          accept="image/*"
+          maxFiles={MAX_FILES}
+          onOpenConfig={() => setIsConfigModalOpen(true)}
         />
-      ) : (
-        <div className="space-y-8 italic">
-          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-[40px] p-8 shadow-xl shadow-black/5 space-y-10 not-italic">
-            {/* Options grid */}
-            <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-              <div className="xl:col-span-8 flex flex-col h-full space-y-8">
-                <div className="flex items-center gap-2 text-blue-600">
-                  <Layout className="w-5 h-5" />
-                  <h3 className="text-xs font-black tracking-widest uppercase">Layout Configuration</h3>
-                </div>
+      )}
 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-6">
-                    <div className="space-y-3">
-                       <p className="text-[10px] font-black uppercase text-neutral-400 tracking-wider italic">Page Format</p>
-                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                         {['A4', 'A3', 'Letter', 'Custom'].map(s => (
-                           <button
-                             key={s}
-                             onClick={() => setPageSize(s as any)}
-                             className={cn(
-                               "py-2.5 rounded-xl border-2 font-black text-[10px] uppercase transition-all shadow-sm",
-                               pageSize === s ? "border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-600" : "border-neutral-100 dark:border-neutral-800 text-neutral-400 hover:border-neutral-200"
-                             )}
-                           >{s}</button>
-                         ))}
-                       </div>
-                    </div>
-
-                    {pageSize === 'Custom' ? (
-                      <div className="grid grid-cols-2 gap-4 animate-in slide-in-from-top-1 duration-300">
-                         <div className="space-y-1.5">
-                            <p className="text-[8px] font-black text-neutral-400 uppercase tracking-widest">Width (pt)</p>
-                            <input type="number" value={customWidth} onChange={(e) => setCustomWidth(Number(e.target.value))} className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl text-sm font-black border-2 border-transparent focus:border-blue-500 transition-all outline-none" />
-                         </div>
-                         <div className="space-y-1.5">
-                            <p className="text-[8px] font-black text-neutral-400 uppercase tracking-widest">Height (pt)</p>
-                            <input type="number" value={customHeight} onChange={(e) => setCustomHeight(Number(e.target.value))} className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl text-sm font-black border-2 border-transparent focus:border-blue-500 transition-all outline-none" />
-                         </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                         <p className="text-[10px] font-black uppercase text-neutral-400 tracking-wider italic">Orientation</p>
-                         <div className="grid grid-cols-2 gap-2">
-                           {['portrait', 'landscape'].map(o => (
-                             <button
-                               key={o}
-                               onClick={() => setOrientation(o as Orientation)}
-                               className={cn(
-                                 "py-2.5 rounded-xl border-2 font-black text-[10px] uppercase transition-all shadow-sm",
-                                 orientation === o ? "border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-600" : "border-neutral-100 dark:border-neutral-800 text-neutral-400 hover:border-neutral-200"
-                               )}
-                             >{o}</button>
-                           ))}
-                         </div>
-                      </div>
-                    )}
-                    
-                    <div className="space-y-3">
-                       <p className="text-[10px] font-black uppercase text-neutral-400 tracking-wider italic">Background</p>
-                       <button 
-                         onClick={() => setIsColorPickerOpen(true)}
-                         className="w-full flex items-center justify-between p-4 bg-neutral-50 dark:bg-neutral-800 rounded-2xl border-2 border-transparent hover:border-blue-500 transition-all group"
-                       >
-                         <div className="flex items-center gap-4">
-                           <div className="w-10 h-10 rounded-xl shadow-lg border border-white/20" style={{ backgroundColor: bgColor }} />
-                           <span className="text-xs font-black uppercase text-neutral-900 dark:text-white">{bgColor}</span>
-                         </div>
-                         <Palette className="w-4 h-4 text-neutral-400 group-hover:text-blue-600 transition-colors" />
-                       </button>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6">
-                    <div className="space-y-3">
-                      <p className="text-[10px] font-black uppercase text-neutral-400 tracking-wider italic">Fit Algorithm</p>
-                      <div className="grid grid-cols-3 gap-2">
-                        {[
-                          { id: 'fit', label: 'Contain', icon: <Minimize2 className="w-4 h-4 text-blue-500" /> },
-                          { id: 'fill', label: 'Cover', icon: <Maximize2 className="w-4 h-4 text-purple-500" /> },
-                          { id: 'stretch', label: 'Warp', icon: <StretchHorizontal className="w-4 h-4 text-orange-500" /> }
-                        ].map(m => (
-                          <button
-                            key={m.id}
-                            onClick={() => setFitMode(m.id as FitMode)}
-                            className={cn(
-                              "flex flex-col items-center justify-center gap-2 py-4 rounded-xl border-2 transition-all shadow-sm",
-                              fitMode === m.id ? "border-current bg-current/5" : "border-neutral-100 dark:border-neutral-800 text-neutral-400 hover:border-neutral-200"
-                            )}
-                            style={{ color: fitMode === m.id ? (m.id === 'fit' ? '#2563eb' : m.id === 'fill' ? '#9333ea' : '#ea580c') : undefined }}
-                          >
-                            {m.icon}
-                            <span className="text-[8px] font-black uppercase tracking-widest">{m.label}</span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                       <p className="text-[10px] font-black uppercase text-neutral-400 tracking-wider italic">Margins (px)</p>
-                       <div className="grid grid-cols-2 gap-3">
-                          <div className="relative">
-                             <input type="number" value={margin.top} onChange={(e) => setMargin(m => ({ ...m, top: Number(e.target.value), bottom: Number(e.target.value) }))} className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl text-sm font-black border-2 border-transparent focus:border-blue-500" />
-                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-neutral-300 uppercase">Y-Axis</span>
-                          </div>
-                          <div className="relative">
-                             <input type="number" value={margin.left} onChange={(e) => setMargin(m => ({ ...m, left: Number(e.target.value), right: Number(e.target.value) }))} className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 rounded-xl text-sm font-black border-2 border-transparent focus:border-blue-500" />
-                             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[8px] font-black text-neutral-300 uppercase">X-Axis</span>
-                          </div>
-                       </div>
-                    </div>
-
-                    <div className="space-y-3">
-                       <p className="text-[10px] font-black uppercase text-neutral-400 tracking-wider italic">Quality Profile</p>
-                       <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700">
-                          {['small', 'medium', 'high'].map(q => (
-                            <button
-                              key={q}
-                              onClick={() => setQuality(q as any)}
-                              className={cn(
-                                "flex-1 py-2 rounded-lg font-black text-[9px] uppercase transition-all",
-                                quality === q ? "bg-white dark:bg-neutral-700 text-blue-600 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
-                              )}
-                            >{q}</button>
-                          ))}
-                       </div>
-                    </div>
-                  </div>
+      {images.length > 0 && (
+        <>
+          <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-[40px] p-6 shadow-xl shadow-black/5">
+            <div className="grid gap-4 md:grid-cols-[1fr_auto] items-center">
+              <div className="relative">
+                <label htmlFor="pdf-filename" className="sr-only">Filename</label>
+                <div className="flex items-center gap-3 rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 px-4 py-3">
+                  <input
+                    id="pdf-filename"
+                    type="text"
+                    value={filename}
+                    onChange={(e) => setFilename(e.target.value)}
+                    placeholder="placeholder"
+                    className="w-full bg-transparent text-sm font-black uppercase tracking-widest text-neutral-900 dark:text-white placeholder:text-neutral-400 outline-none"
+                  />
+                  <span className="text-sm font-black uppercase text-neutral-500">.pdf</span>
                 </div>
               </div>
 
-              <div className="xl:col-span-4 h-full border-t xl:border-t-0 xl:border-l border-neutral-100 dark:border-neutral-800 pt-8 xl:pt-0 xl:pl-8 flex flex-col justify-center">
-                <div className="space-y-6">
-                  {isProcessing && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[10px] font-black uppercase text-blue-600 tracking-widest">{processingStage}</span>
-                        <span className="text-[10px] font-black text-blue-600">{progress}%</span>
-                      </div>
-                      <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                        <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} className="h-full bg-blue-600" />
-                      </div>
-                    </div>
-                  )}
-                  <button 
-                    onClick={convertToPdf}
-                    disabled={isProcessing}
-                    className="group w-full py-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black rounded-[24px] shadow-2xl shadow-blue-500/30 active:scale-[0.98] transition-all flex items-center justify-center gap-3"
-                  >
-                    {isProcessing ? <Loader2 className="w-6 h-6 animate-spin" /> : <Wand2 className="w-6 h-6 transition-transform group-hover:scale-110" />}
-                    <span className="text-xl tracking-tight uppercase italic">{isProcessing ? 'COMPILING...' : 'EXPORT TO PDF'}</span>
-                  </button>
-                  <div className="flex flex-col items-center gap-3">
-                     <div className="flex items-center justify-center gap-2 text-[8px] font-black uppercase text-neutral-400 tracking-[0.2em]">
-                       <ShieldCheck className="w-3.5 h-3.5 text-blue-500" />
-                       Safe Local Conversion
-                     </div>
-                  </div>
-                </div>
+              <div className="flex items-center gap-3 justify-end">
+                <button
+                  type="button"
+                  onClick={() => setIsConfigModalOpen(true)}
+                  className="p-3 bg-neutral-100 dark:bg-neutral-900 rounded-2xl text-neutral-500 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-all"
+                  aria-label="Open PDF configuration"
+                >
+                  <Settings2 className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={convertToPdf}
+                  disabled={isProcessing}
+                  className="w-full md:w-auto py-4 px-6 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-black uppercase tracking-widest rounded-2xl shadow-2xl shadow-blue-500/30 transition-all"
+                >
+                  {isProcessing ? 'Generating...' : 'Generate'}
+                </button>
               </div>
             </div>
+
+            {isProcessing && (
+              <div className="mt-4">
+                <div className="flex items-center justify-between gap-4 text-[10px] font-black uppercase tracking-[0.35em] text-blue-600">
+                  <span>{processingStage}</span>
+                  <span>{progress}%</span>
+                </div>
+                <div className="mt-2 h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} className="h-full bg-blue-600" />
+                </div>
+              </div>
+            )}
           </div>
 
           <ColorPickerModal 
@@ -497,6 +423,209 @@ export default function ImgToPdfTool() {
             title="Canvas Background"
           />
 
+          <AnimatePresence>
+            {isConfigModalOpen && (
+              <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setIsConfigModalOpen(false)}
+                  className="fixed inset-0 bg-black/60 backdrop-blur-md"
+                />
+
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.9, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.9, y: 20 }}
+                  transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+                  className="relative w-full max-w-4xl bg-white dark:bg-neutral-900 rounded-[40px] shadow-2xl overflow-hidden border border-neutral-100 dark:border-neutral-800"
+                >
+                  <div className="p-6 md:p-8 space-y-8">
+                    <div className="flex items-start justify-between gap-4">
+                      <div>
+                        <h3 className="text-2xl font-black tracking-tight text-neutral-900 dark:text-white">PDF Configuration</h3>
+                        <p className="text-[10px] uppercase tracking-[0.35em] text-neutral-400 mt-2">Edit PDF output settings for Image to PDF.</p>
+                      </div>
+                      <button
+                        onClick={() => setIsConfigModalOpen(false)}
+                        className="p-2 hover:bg-neutral-100 dark:hover:bg-neutral-800 rounded-full transition-colors"
+                      >
+                        <X className="w-5 h-5 text-neutral-500" />
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
+                      <div className="xl:col-span-7 space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Page format</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              {['A4', 'A3', 'Letter', 'Custom'].map(s => (
+                                <button
+                                  key={s}
+                                  onClick={() => setPageSize(s as any)}
+                                  className={cn(
+                                    'py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all shadow-sm',
+                                    pageSize === s ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'border-neutral-100 dark:border-neutral-800 text-neutral-400 hover:border-neutral-200'
+                                  )}
+                                >{s}</button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Orientation</p>
+                            <div className="grid grid-cols-2 gap-2">
+                              {['portrait', 'landscape'].map(o => (
+                                <button
+                                  key={o}
+                                  onClick={() => setOrientation(o as Orientation)}
+                                  className={cn(
+                                    'py-3 rounded-xl border-2 font-black text-[10px] uppercase transition-all shadow-sm',
+                                    orientation === o ? 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-600' : 'border-neutral-100 dark:border-neutral-800 text-neutral-400 hover:border-neutral-200'
+                                  )}
+                                >{o}</button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        {pageSize === 'Custom' && (
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Width (pt)</p>
+                              <input
+                                type="number"
+                                value={customWidth}
+                                onChange={(e) => setCustomWidth(Number(e.target.value))}
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-black outline-none focus:border-blue-500 transition-all"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Height (pt)</p>
+                              <input
+                                type="number"
+                                value={customHeight}
+                                onChange={(e) => setCustomHeight(Number(e.target.value))}
+                                className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-black outline-none focus:border-blue-500 transition-all"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4">
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Fit algorithm</p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { id: 'fit', label: 'Contain', icon: <Minimize2 className="w-4 h-4 text-blue-500" /> },
+                                { id: 'fill', label: 'Cover', icon: <Maximize2 className="w-4 h-4 text-purple-500" /> },
+                                { id: 'stretch', label: 'Warp', icon: <StretchHorizontal className="w-4 h-4 text-orange-500" /> }
+                              ].map(m => (
+                                <button
+                                  key={m.id}
+                                  onClick={() => setFitMode(m.id as FitMode)}
+                                  className={cn(
+                                    'flex flex-col items-center justify-center gap-2 py-4 rounded-xl border-2 transition-all shadow-sm',
+                                    fitMode === m.id ? 'border-current bg-current/5' : 'border-neutral-100 dark:border-neutral-800 text-neutral-400 hover:border-neutral-200'
+                                  )}
+                                  style={{ color: fitMode === m.id ? (m.id === 'fit' ? '#2563eb' : m.id === 'fill' ? '#9333ea' : '#ea580c') : undefined }}
+                                >
+                                  {m.icon}
+                                  <span className="text-[8px] font-black uppercase tracking-widest">{m.label}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Quality</p>
+                            <div className="flex gap-1 p-1 bg-neutral-100 dark:bg-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-700">
+                              {['small', 'medium', 'high'].map(q => (
+                                <button
+                                  key={q}
+                                  onClick={() => setQuality(q as any)}
+                                  className={cn(
+                                    'flex-1 py-3 rounded-xl font-black text-[9px] uppercase transition-all',
+                                    quality === q ? 'bg-white dark:bg-neutral-700 text-blue-600 shadow-sm' : 'text-neutral-400 hover:text-neutral-600'
+                                  )}
+                                >{q}</button>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Background</p>
+                          <button
+                            onClick={() => setIsColorPickerOpen(true)}
+                            className="w-full flex items-center justify-between p-4 bg-neutral-50 dark:bg-neutral-800 rounded-2xl border border-neutral-200 dark:border-neutral-700 hover:border-blue-500 transition-all"
+                          >
+                            <span className="font-black uppercase tracking-[0.2em] text-sm">{bgColor}</span>
+                            <Palette className="w-5 h-5 text-neutral-500" />
+                          </button>
+                        </div>
+
+                        <div className="space-y-3">
+                          <p className="text-[10px] font-black uppercase tracking-[0.35em] text-neutral-400">Margins</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <input
+                              type="number"
+                              value={margin.top}
+                              onChange={(e) => setMargin(m => ({ ...m, top: Number(e.target.value), bottom: Number(e.target.value) }))}
+                              className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-black outline-none focus:border-blue-500 transition-all"
+                              placeholder="Y-Axis"
+                            />
+                            <input
+                              type="number"
+                              value={margin.left}
+                              onChange={(e) => setMargin(m => ({ ...m, left: Number(e.target.value), right: Number(e.target.value) }))}
+                              className="w-full px-4 py-3 bg-neutral-50 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 rounded-2xl text-sm font-black outline-none focus:border-blue-500 transition-all"
+                              placeholder="X-Axis"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="xl:col-span-5 rounded-[32px] border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-6 space-y-6">
+                        <div className="flex items-center gap-3">
+                          <ShieldCheck className="w-5 h-5 text-blue-600" />
+                          <div>
+                            <p className="text-sm font-black uppercase tracking-tight">Safe Local Conversion</p>
+                            <p className="text-[10px] uppercase tracking-[0.35em] text-neutral-500 dark:text-neutral-400">All processing stays in your browser.</p>
+                          </div>
+                        </div>
+                        <div className="space-y-4">
+                          <div className="text-[10px] uppercase tracking-[0.35em] text-neutral-400 font-black">Preview</div>
+                          <div className="w-full rounded-3xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
+                            <div className="text-[12px] font-black uppercase text-neutral-600 dark:text-neutral-400">Filename</div>
+                            <p className="mt-2 font-black text-neutral-900 dark:text-white truncate">{downloadFilename}</p>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        onClick={() => setIsConfigModalOpen(false)}
+                        className="py-4 px-6 text-xs font-black uppercase tracking-widest bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 rounded-2xl transition-all hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                      >
+                        Close
+                      </button>
+                      <button
+                        onClick={() => setIsConfigModalOpen(false)}
+                        className="py-4 px-6 text-xs font-black uppercase tracking-widest bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-500/20 hover:bg-blue-700 transition-all"
+                      >
+                        Save Settings
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
           <ImageViewer 
             src={viewerItem?.thumbnail || ''} 
             rotation={viewerItem?.rotation || 0}
@@ -504,18 +633,7 @@ export default function ImgToPdfTool() {
             onClose={() => setViewerItem(null)} 
             onRotate={(rot) => viewerItem && handleRotate(viewerItem.id, rot)}
           />
-
-          <FileGrid 
-            items={images}
-            onRemove={removeImg}
-            onMove={handleMove}
-            onRotate={handleRotate}
-            onPreview={setViewerItem}
-            onAddMore={handleFiles}
-            accept="image/*"
-            maxFiles={MAX_FILES}
-          />
-        </div>
+        </>
       )}
 
       <ToolContent 

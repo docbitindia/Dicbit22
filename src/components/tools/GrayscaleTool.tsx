@@ -62,12 +62,14 @@ export default function GrayscaleTool() {
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const [highResViewerImage, setHighResViewerImage] = useState<string | null>(null);
   const [isRenderingViewer, setIsRenderingViewer] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const blocker = useFileExitConfirm({ isDirty: !!file && !result });
 
   const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
     const f = files[0];
+    setErrorMessage(null);
     setIsLoadingFile(true);
     setFile(f);
     setResult(null);
@@ -110,6 +112,7 @@ export default function GrayscaleTool() {
       }
     } catch (e) {
       console.error('File load failed:', e);
+      setErrorMessage('Unable to load the selected PDF. Please try another document.');
       setFile(null);
     } finally {
       setIsLoadingFile(false);
@@ -168,7 +171,7 @@ export default function GrayscaleTool() {
         : Array.from(selectedPages).sort((a, b) => a - b).map(idx => idx + 1);
 
       if (pagesToProcess.length === 0 && mode === 'selected') {
-        alert('Please select at least one page.');
+        setErrorMessage('Please select at least one page to process.');
         setIsProcessing(false);
         return;
       }
@@ -203,7 +206,7 @@ export default function GrayscaleTool() {
           await (page as any).render({ canvasContext: ctx, viewport: renderViewport, intent: 'print' }).promise;
 
           setProcessingStage(`Converting page ${i + 1} (Grayscale)...`);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
           
           const processedImageData = await new Promise<ImageData>((resolve) => {
             worker.onmessage = (e) => resolve(e.data.imageData);
@@ -213,11 +216,11 @@ export default function GrayscaleTool() {
           ctx.putImageData(processedImageData, 0, 0);
           
           setProcessingStage(`Embedding page ${i + 1}...`);
-          const imgBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, conversionType === 'pure-bw' ? 'image/png' : 'image/jpeg', 0.92));
+          let imgBlob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, conversionType === 'pure-bw' ? 'image/png' : 'image/jpeg', 0.92));
           if (!imgBlob) throw new Error('Failed to create image blob');
           
-          const imgBytes = await imgBlob.arrayBuffer();
-          const embeddedImg = (conversionType === 'pure-bw') ? await outPdf.embedPng(imgBytes) : await outPdf.embedJpg(imgBytes);
+          let imgBytes = await imgBlob.arrayBuffer();
+          let embeddedImg = (conversionType === 'pure-bw') ? await outPdf.embedPng(imgBytes) : await outPdf.embedJpg(imgBytes);
           
           const newPage = outPdf.addPage([originalWidth, originalHeight]);
           newPage.drawImage(embeddedImg, { x: 0, y: 0, width: originalWidth, height: originalHeight });
@@ -244,7 +247,7 @@ export default function GrayscaleTool() {
       setIsDownloaded(false);
     } catch (e) {
       console.error('Grayscale processing error:', e);
-      alert('An error occurred during processing.');
+      setErrorMessage('An error occurred during processing. Please try again or select a smaller file.');
     } finally {
       setIsProcessing(false);
       setProgress(0);
@@ -295,9 +298,26 @@ export default function GrayscaleTool() {
         )}
       </AnimatePresence>
 
-       {!file ? (
-         <Dropzone onFilesSelected={handleFiles} maxFiles={1} isProcessing={isLoadingFile} label="Select PDF to Grayscale" />
-        ) : (
+      {errorMessage && (
+        <div className="px-4 py-3 rounded-3xl bg-red-50 dark:bg-red-950/60 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm font-bold uppercase tracking-[0.24em]">
+          {errorMessage}
+        </div>
+      )}
+
+      <Dropzone 
+        onFilesSelected={handleFiles} 
+        maxFiles={1} 
+        maxFilesMessage="Please upload a single PDF file." 
+        invalidTypeMessage="Only PDF files are supported." 
+        maxFilesStrict={true}
+        isProcessing={isLoadingFile} 
+        processingFilesCount={file ? 1 : undefined} 
+        processingTotalSize={file?.size} 
+        onError={setErrorMessage} 
+        label="Select PDF to Grayscale" 
+      />
+
+      {file && (
           <div className="space-y-8">
             {/* Header section moved to top */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">

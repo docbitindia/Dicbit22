@@ -58,6 +58,7 @@ export default function SplitTool() {
   const [processingStage, setProcessingStage] = useState('');
   const [result, setResult] = useState<{ url: string; size: number } | null>(null);
   const [isDownloaded, setIsDownloaded] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
   const [viewerImage, setViewerImage] = useState<string | null>(null);
   const [highResViewerImage, setHighResViewerImage] = useState<string | null>(null);
@@ -68,6 +69,7 @@ export default function SplitTool() {
   const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
     const f = files[0];
+    setErrorMessage(null);
     setIsLoadingFile(true);
     setFile(f);
     setResult(null);
@@ -111,6 +113,7 @@ export default function SplitTool() {
       }
     } catch (e) {
       console.error('File load failed:', e);
+      setErrorMessage('Unable to load the selected PDF. Please try again with a different file.');
       setFile(null);
     } finally {
       setIsLoadingFile(false);
@@ -217,7 +220,7 @@ export default function SplitTool() {
       pagesToInclude = Array.from(new Set(pagesToInclude)).sort((a, b) => a - b);
 
       if (pagesToInclude.length === 0) {
-        alert('Please specify at least one page to split.');
+        setErrorMessage('Please specify at least one page to split.');
         setIsSplitting(false);
         return;
       }
@@ -227,7 +230,7 @@ export default function SplitTool() {
       const CHUNK_SIZE = 10;
       for (let i = 0; i < pagesToInclude.length; i += CHUNK_SIZE) {
         const chunk = pagesToInclude.slice(i, i + CHUNK_SIZE);
-        const copiedPages = await outPdf.copyPages(sourcePdf, chunk.map(p => p - 1));
+        let copiedPages = await outPdf.copyPages(sourcePdf, chunk.map(p => p - 1));
         copiedPages.forEach(p => outPdf.addPage(p));
         
         // Memory cleanup
@@ -246,7 +249,7 @@ export default function SplitTool() {
       setResult({ url, size: blob.size });
     } catch (e) {
       console.error('Split failed:', e);
-      alert('Failed to split PDF. Please check the file.');
+      setErrorMessage('Failed to split PDF. Please check the file and try again.');
     } finally {
       setIsSplitting(false);
       setProgress(0);
@@ -304,9 +307,26 @@ export default function SplitTool() {
         )}
       </AnimatePresence>
 
-       {!file ? (
-         <Dropzone onFilesSelected={handleFiles} maxFiles={1} isProcessing={isLoadingFile} label="Split PDF Document" />
-        ) : (
+      {errorMessage && (
+        <div className="px-4 py-3 rounded-3xl bg-red-50 dark:bg-red-950/60 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm font-bold uppercase tracking-[0.24em] mb-4">
+          {errorMessage}
+        </div>
+      )}
+
+      <Dropzone 
+        onFilesSelected={handleFiles} 
+        maxFiles={1} 
+        maxFilesMessage="Please upload a single PDF file." 
+        invalidTypeMessage="Only PDF files are supported." 
+        maxFilesStrict={true}
+        isProcessing={isLoadingFile} 
+        processingFilesCount={file ? 1 : undefined} 
+        processingTotalSize={file?.size} 
+        onError={setErrorMessage} 
+        label="Split PDF Document" 
+      />
+
+      {file && (
           <div className="space-y-8">
             {/* Header section moved to top */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
