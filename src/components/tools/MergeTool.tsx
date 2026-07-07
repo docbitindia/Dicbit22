@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Dropzone } from '../Dropzone';
 import { PDFDocument, rgb, StandardFonts } from 'pdf-lib';
+import * as pdfjs from 'pdfjs-dist';
+pdfjs.GlobalWorkerOptions.workerSrc = `https://unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
 import { useFileExitConfirm } from '../../hooks/useFileExitConfirm';
 import { NavigationConfirmModal } from '../NavigationConfirmModal';
 import { 
@@ -39,7 +41,7 @@ import { getFAQSchema } from '../../utils/schema/faqSchema';
 import { TOOL_SEO_CONTENT } from '../../constants/toolSeoContent';
 
 export default function MergeTool() {
-  const MAX_FILES = 300;
+  const MAX_FILES = 50;
   const tool = TOOLS.find(t => t.id === 'merge')!;
   const [files, setFiles] = useState<GridItem[]>([]);
   const [isMerging, setIsMerging] = useState(false);
@@ -48,6 +50,7 @@ export default function MergeTool() {
   const [processingStage, setProcessingStage] = useState('');
   const [result, setResult] = useState<{ url: string; size: number } | null>(null);
   const [isDownloaded, setIsDownloaded] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // Options
   const [normalizeSize, setNormalizeSize] = useState(false);
@@ -57,12 +60,17 @@ export default function MergeTool() {
 
   const handleFiles = async (newFiles: File[]) => {
     if (files.length >= MAX_FILES) {
-      alert(`Maximum of ${MAX_FILES} files allowed.`);
+      setErrorMessage(`Maximum of ${MAX_FILES} files allowed.`);
       return;
     }
 
+    setErrorMessage(null);
     const remainingSlots = MAX_FILES - files.length;
     const filesToProcess = newFiles.slice(0, remainingSlots);
+
+    if (newFiles.length > remainingSlots) {
+      setErrorMessage(`Only ${remainingSlots} additional file${remainingSlots === 1 ? '' : 's'} can be added.`);
+    }
 
     setIsAddingFiles(true);
     
@@ -155,11 +163,11 @@ export default function MergeTool() {
           setProcessingStage(`Reading file ${i + 1} of ${files.length}...`);
           setProgress(Math.round((i / files.length) * 100));
 
-          const bytes = await readFileAsArrayBuffer(fileData.file);
-          const pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
+          let bytes = await readFileAsArrayBuffer(fileData.file);
+          let pdf = await PDFDocument.load(bytes, { ignoreEncryption: true });
           
           setProcessingStage(`Merging file ${i + 1}...`);
-          const copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
+          let copiedPages = await mergedPdf.copyPages(pdf, pdf.getPageIndices());
           
           for (const copiedPage of copiedPages) {
             if (normalizeSize) {
@@ -194,7 +202,7 @@ export default function MergeTool() {
       setIsDownloaded(false);
     } catch (error) {
       console.error('Merge error:', error);
-      alert('Failed to merge PDFs. One of the files might be corrupted or encrypted.');
+      setErrorMessage('Failed to merge PDFs. One of the files may be corrupted or encrypted.');
     } finally {
       setIsMerging(false);
       setProgress(0);
@@ -248,14 +256,27 @@ export default function MergeTool() {
         )}
       </AnimatePresence>
 
-      {files.length === 0 ? (
-        <Dropzone 
-          onFilesSelected={handleFiles} 
-          maxFiles={MAX_FILES} 
-          isProcessing={isAddingFiles}
-          label="Select PDF Documents" 
-        />
-      ) : (
+      {errorMessage && (
+        <div className="px-4 py-3 rounded-3xl bg-red-50 dark:bg-red-950/60 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm font-bold uppercase tracking-[0.24em]">
+          {errorMessage}
+        </div>
+      )}
+
+      <Dropzone 
+        onFilesSelected={handleFiles} 
+        maxFiles={MAX_FILES} 
+        existingFilesCount={files.length}
+        maxFilesMessage="Maximum 50 PDF files allowed for merging."
+        invalidTypeMessage="Only PDF files are supported."
+        isProcessing={isAddingFiles}
+        processingFilesCount={files.length}
+        processingTotalSize={files.reduce((acc, file) => acc + file.size, 0)}
+        onError={setErrorMessage}
+        accept={{ 'application/pdf': ['.pdf'] }}
+        label="Select PDF Documents" 
+      />
+
+      {files.length > 0 && (
         <div className="space-y-8">
             <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-[40px] p-8 shadow-xl shadow-black/5 space-y-8">
               <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">

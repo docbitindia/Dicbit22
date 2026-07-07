@@ -79,12 +79,14 @@ export default function PdfToImgTool() {
   const [viewerImg, setViewerImg] = useState<string | null>(null);
   const [highResViewerImage, setHighResViewerImage] = useState<string | null>(null);
   const [isRenderingViewer, setIsRenderingViewer] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const blocker = useFileExitConfirm({ isDirty: !!file && !result });
 
   const handleFiles = async (files: File[]) => {
     if (files.length === 0) return;
     const f = files[0];
+    setErrorMessage(null);
     setFile(f);
     setIsLoadingFile(true);
     setPages([]);
@@ -124,8 +126,8 @@ export default function PdfToImgTool() {
       }
       setPages(thumbs);
     } catch (e) {
-      console.error(e);
-      alert('Failed to process PDF.');
+      console.error('Failed to process PDF.', e);
+      setErrorMessage('Failed to read the selected PDF. Please try another document.');
       setFile(null);
     } finally {
       setIsLoadingFile(false);
@@ -227,13 +229,13 @@ export default function PdfToImgTool() {
         try {
           targetIndices = validateRange(rangeStr);
         } catch (e: any) {
-          alert(e.message);
+          setErrorMessage(e.message || 'Please enter a valid page range.');
           setIsConverting(false);
           return;
         }
       } else {
         if (selectedPages.size === 0) {
-          alert('Please select valid pages.');
+          setErrorMessage('Please select valid pages to export.');
           setIsConverting(false);
           return;
         }
@@ -241,7 +243,7 @@ export default function PdfToImgTool() {
       }
 
       if (targetIndices.length === 0) {
-        alert('Please select valid pages.');
+        setErrorMessage('Please select valid pages to export.');
         setIsConverting(false);
         return;
       }
@@ -280,8 +282,8 @@ export default function PdfToImgTool() {
       setResult({ url, size: content.size, isZip: true });
       setIsDownloaded(false);
     } catch (e) {
-      console.error(e);
-      alert('Conversion failed.');
+      console.error('Conversion failed:', e);
+      setErrorMessage('Conversion failed. Please try again or select a smaller file.');
     } finally {
       setIsConverting(false);
       setProgress(0);
@@ -339,15 +341,27 @@ export default function PdfToImgTool() {
         )}
       </AnimatePresence>
 
-      {!file ? (
-        <Dropzone 
-          onFilesSelected={handleFiles} 
-          maxFiles={1} 
-          isProcessing={isLoadingFile}
-          accept={{ 'application/pdf': ['.pdf'] }}
-          label="Select PDF Documents" 
-        />
-      ) : (
+      {errorMessage && (
+        <div className="px-4 py-3 rounded-3xl bg-red-50 dark:bg-red-950/60 border border-red-100 dark:border-red-900 text-red-700 dark:text-red-300 text-sm font-bold uppercase tracking-[0.24em] mb-4">
+          {errorMessage}
+        </div>
+      )}
+
+      <Dropzone 
+        onFilesSelected={handleFiles} 
+        maxFiles={1} 
+        maxFilesMessage="Only one PDF can be converted at a time."
+        invalidTypeMessage="Only PDF files are supported."
+        maxFilesStrict={true}
+        isProcessing={isLoadingFile}
+        processingFilesCount={file ? 1 : undefined}
+        processingTotalSize={file?.size}
+        onError={setErrorMessage}
+        accept={{ 'application/pdf': ['.pdf'] }}
+        label="Select PDF Documents" 
+      />
+
+      {file && (
         <div className="space-y-8">
             {/* Header section moved to top */}
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 px-2">
@@ -357,18 +371,7 @@ export default function PdfToImgTool() {
                 </h1>
                 <p className="text-sm font-bold uppercase tracking-widest text-neutral-400">Extract pages from your PDF as high-quality images.</p>
               </div>
-              <label className="flex items-center justify-center gap-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-2xl transition-all shadow-lg shadow-blue-500/20 cursor-pointer active:scale-95 text-sm uppercase italic tracking-tighter shrink-0">
-                <Plus className="w-5 h-5" />
-                ADD MORE
-                <input type="file" className="hidden" accept=".pdf" onChange={(e) => e.target.files && handleFiles(Array.from(e.target.files))} />
-              </label>
-            </div>
 
-            {/* Strategy and Options - Wide Section at Top */}
-            <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-[40px] p-8 shadow-xl shadow-black/5 space-y-8">
-              <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
-                <div className="xl:col-span-8 flex flex-col h-full">
-                  <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-2 text-blue-600">
                       <Files className="w-5 h-5" />
                       <h3 className="text-xs font-black tracking-widest uppercase">Export Strategy</h3>
@@ -486,7 +489,7 @@ export default function PdfToImgTool() {
                        </div>
                     </div>
                   </div>
-                </div>
+
 
                 <div className="xl:col-span-4 border-t xl:border-t-0 xl:border-l border-neutral-100 dark:border-neutral-800 pt-8 xl:pt-0 xl:pl-8 flex flex-col justify-center">
                   <div className="space-y-6">
@@ -497,7 +500,7 @@ export default function PdfToImgTool() {
                           <span className="text-[10px] font-black text-blue-600">{progress}%</span>
                         </div>
                         <div className="h-2 w-full bg-neutral-100 dark:bg-neutral-800 rounded-full overflow-hidden">
-                          <motion.div initial={{ width: 0 }} animate={{ width: `${progress}%` }} className="h-full bg-blue-600" />
+                          <motion.div initial={{ width: 0 }} animate={{ width: progress + '%' }} className="h-full bg-blue-600" />
                         </div>
                       </div>
                     )}
@@ -515,8 +518,7 @@ export default function PdfToImgTool() {
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
+
 
             {/* Preview Section */}
             <div className="bg-white dark:bg-neutral-900 rounded-[40px] border border-neutral-200 dark:border-neutral-800 p-8 shadow-sm flex-1">
